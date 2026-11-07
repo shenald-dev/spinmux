@@ -1,0 +1,4 @@
+{
+  "name": "corrupted-json-fixture",
+  "scripts": {
+    "dev": "node server.js",

@@ -1,0 +1,18 @@
+{
+  "name": "spinmux-fixture-package-json",
+  "version": "1.0.0",
+  "description": "Multi-service fixture for spinmux auto-discovery",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "server": "express server.js --port 5000",
+    "worker": "node worker.js",
+    "dev:api": "node -e \"console.log('API running on 4000')\" --port 4000",
+    "build": "vite build",
+    "test": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "vite": "^5.2.0"
+  }
+}

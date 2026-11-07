@@ -1,0 +1,107 @@
+name: Release Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            bin_name: spinmux.exe
+            archive_ext: zip
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            bin_name: spinmux
+            archive_ext: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            bin_name: spinmux
+            archive_ext: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            bin_name: spinmux
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Release Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows Binary (zip)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $TAG = "${{ github.ref_name }}"
+          $ARCHIVE = "spinmux-${TAG}-${{ matrix.target }}.zip"
+          Compress-Archive -Path target/${{ matrix.target }}/release/spinmux.exe, README.md, LICENSE -DestinationPath $ARCHIVE
+          $HASH = (Get-FileHash -Path $ARCHIVE -Algorithm SHA256).Hash.ToLower()
+          "$HASH  $ARCHIVE" | Out-File -FilePath "$ARCHIVE.sha256" -Encoding ascii
+          echo "ARCHIVE_PATH=$ARCHIVE" >> $env:GITHUB_ENV
+          echo "CHECKSUM_PATH=$ARCHIVE.sha256" >> $env:GITHUB_ENV
+
+      - name: Package Unix Binary (tar.gz)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          ARCHIVE="spinmux-${TAG}-${{ matrix.target }}.tar.gz"
+          cp target/${{ matrix.target }}/release/spinmux .
+          tar -czvf "$ARCHIVE" spinmux README.md LICENSE
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          echo "ARCHIVE_PATH=$ARCHIVE" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=$ARCHIVE.sha256" >> $GITHUB_ENV
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spinmux-${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten Artifact Directory
+        run: |
+          mkdir -p release_assets
+          find dist -type f -exec cp {} release_assets/ \;
+          ls -la release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

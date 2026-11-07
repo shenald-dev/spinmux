@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Archives & release packaging
+*.zip
+*.tar.gz
+*.sha256
+dist/
+release_assets/
+
+# Node / JS artifacts if any in local testing
+node_modules/

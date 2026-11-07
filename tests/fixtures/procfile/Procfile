@@ -1,0 +1,4 @@
+# Spinmux Multi-Service Procfile Fixture
+web: npm run start --port $PORT
+worker: python worker.py
+api: go run main.go -p 8000

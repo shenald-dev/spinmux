@@ -1,24 +1,24 @@
-/// Cross-platform POSIX fallback process supervisor hooks
-
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
+//! Cross-platform POSIX fallback process supervisor hooks
 
 /// Configures process group isolation and parent death signal on Unix
 pub fn configure_posix_command(_cmd: &mut tokio::process::Command) {
     #[cfg(unix)]
-    unsafe {
-        _cmd.pre_exec(|| {
-            // Place child process into its own process group
-            libc::setpgid(0, 0);
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            _cmd.pre_exec(|| {
+                // Place child process into its own process group
+                libc::setpgid(0, 0);
 
-            #[cfg(target_os = "linux")]
-            {
-                // Ensure process group dies if parent supervisor dies
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-            }
+                #[cfg(target_os = "linux")]
+                {
+                    // Ensure process group dies if parent supervisor dies
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                }
 
-            Ok(())
-        });
+                Ok(())
+            });
+        }
     }
 }
 

@@ -218,82 +218,87 @@ async fn test_environment_variable_injection() {
 }
 
 #[tokio::test]
+#[cfg(windows)]
 async fn test_windows_job_object_grandchild_orphan_cleanup() {
     let supervisor = Supervisor::new().expect("Supervisor initialization failed");
 
     // Spawn a PowerShell process that spawns a grandchild `ping.exe` process,
     // prints its PID, and waits.
-    #[cfg(windows)]
-    {
-        let grandchild_script = r#"$p = Start-Process -FilePath "ping" -ArgumentList "-n 60 127.0.0.1" -PassThru; Write-Output "GRANDCHILD_PID:$($p.Id)"; $p.WaitForExit()"#;
+    let grandchild_script = r#"$p = Start-Process -FilePath "ping" -ArgumentList "-n 60 127.0.0.1" -PassThru; Write-Output "GRANDCHILD_PID:$($p.Id)"; $p.WaitForExit()"#;
 
-        let svc = create_mock_service(
-            "parent_spawner",
-            "powershell.exe",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                grandchild_script,
-            ],
-        );
+    let svc = create_mock_service(
+        "parent_spawner",
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            grandchild_script,
+        ],
+    );
 
-        supervisor.add_service(svc, None).await.unwrap();
-        supervisor.start_service("parent_spawner").await.unwrap();
+    supervisor.add_service(svc, None).await.unwrap();
+    supervisor.start_service("parent_spawner").await.unwrap();
 
-        let buffer = supervisor.get_buffer("parent_spawner").await.unwrap();
+    let buffer = supervisor.get_buffer("parent_spawner").await.unwrap();
 
-        // Wait up to 5 seconds for grandchild PID to be emitted
-        let mut grandchild_pid: Option<u32> = None;
-        for _ in 0..50 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            let logs = buffer.snapshot(50);
-            for entry in logs {
-                if let Some(pos) = entry.message.find("GRANDCHILD_PID:") {
-                    let pid_str: String = entry.message[pos + "GRANDCHILD_PID:".len()..]
-                        .chars()
-                        .filter(|c| c.is_ascii_digit())
-                        .collect();
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        grandchild_pid = Some(pid);
-                        break;
-                    }
+    // Wait up to 5 seconds for grandchild PID to be emitted
+    let mut grandchild_pid: Option<u32> = None;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let logs = buffer.snapshot(50);
+        for entry in logs {
+            if let Some(pos) = entry.message.find("GRANDCHILD_PID:") {
+                let pid_str: String = entry.message[pos + "GRANDCHILD_PID:".len()..]
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect();
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    grandchild_pid = Some(pid);
+                    break;
                 }
             }
-            if grandchild_pid.is_some() {
-                break;
-            }
         }
-
-        let gc_pid = grandchild_pid.expect("Failed to capture grandchild PID from spawner output");
-        assert!(gc_pid > 0);
-
-        // Verify grandchild process is actively running in Windows
-        assert!(
-            is_process_alive(gc_pid),
-            "Grandchild process {} should be running in OS",
-            gc_pid
-        );
-
-        // Terminate the service via Supervisor / Job Object
-        supervisor.stop_service("parent_spawner").await.unwrap();
-
-        // Verify that the grandchild process was cleanly terminated by Windows Job Objects (zero orphans)
-        let mut is_dead = false;
-        for _ in 0..30 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            if !is_process_alive(gc_pid) {
-                is_dead = true;
-                break;
-            }
+        if grandchild_pid.is_some() {
+            break;
         }
-
-        assert!(
-            is_dead,
-            "CRITICAL: Grandchild process {} was NOT terminated! Windows Job Object zero-orphan enforcement failed.",
-            gc_pid
-        );
     }
+
+    let gc_pid = grandchild_pid.expect("Failed to capture grandchild PID from spawner output");
+    assert!(gc_pid > 0);
+
+    // Verify grandchild process is actively running in Windows
+    assert!(
+        is_process_alive(gc_pid),
+        "Grandchild process {} should be running in OS",
+        gc_pid
+    );
+
+    // Terminate the service via Supervisor / Job Object
+    supervisor.stop_service("parent_spawner").await.unwrap();
+
+    // Verify that the grandchild process was cleanly terminated by Windows Job Objects (zero orphans)
+    let mut is_dead = false;
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if !is_process_alive(gc_pid) {
+            is_dead = true;
+            break;
+        }
+    }
+
+    assert!(
+        is_dead,
+        "CRITICAL: Grandchild process {} was NOT terminated! Windows Job Object zero-orphan enforcement failed.",
+        gc_pid
+    );
+}
+
+#[tokio::test]
+#[cfg(not(windows))]
+async fn test_windows_job_object_grandchild_orphan_cleanup() {
+    // Windows Job Objects are Windows-specific; on POSIX platforms, process groups are used.
+    let _supervisor = Supervisor::new().expect("Supervisor initialization failed");
 }
 
 #[tokio::test]

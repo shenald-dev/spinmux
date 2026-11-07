@@ -223,8 +223,8 @@ async fn test_windows_job_object_grandchild_orphan_cleanup() {
     let supervisor = Supervisor::new().expect("Supervisor initialization failed");
 
     // Spawn a PowerShell process that spawns a grandchild `ping.exe` process,
-    // prints its PID, and waits.
-    let grandchild_script = r#"$p = Start-Process -FilePath "ping" -ArgumentList "-n 60 127.0.0.1" -PassThru; Write-Output "GRANDCHILD_PID:$($p.Id)"; $p.WaitForExit()"#;
+    // prints its PID directly to Console stdout with flush, and waits.
+    let grandchild_script = r#"$p = Start-Process -FilePath "ping" -ArgumentList "-n 60 127.0.0.1" -PassThru; [Console]::Out.WriteLine("GRANDCHILD_PID:$($p.Id)"); [Console]::Out.Flush(); $p.WaitForExit()"#;
 
     let svc = create_mock_service(
         "parent_spawner",
@@ -242,12 +242,12 @@ async fn test_windows_job_object_grandchild_orphan_cleanup() {
 
     let buffer = supervisor.get_buffer("parent_spawner").await.unwrap();
 
-    // Wait up to 5 seconds for grandchild PID to be emitted
+    // Wait up to 15 seconds for grandchild PID to be emitted (accounting for CI cold-start)
     let mut grandchild_pid: Option<u32> = None;
-    for _ in 0..50 {
+    for _ in 0..150 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let logs = buffer.snapshot(50);
-        for entry in logs {
+        for entry in &logs {
             if let Some(pos) = entry.message.find("GRANDCHILD_PID:") {
                 let pid_str: String = entry.message[pos + "GRANDCHILD_PID:".len()..]
                     .chars()
@@ -264,7 +264,20 @@ async fn test_windows_job_object_grandchild_orphan_cleanup() {
         }
     }
 
-    let gc_pid = grandchild_pid.expect("Failed to capture grandchild PID from spawner output");
+    let gc_pid = match grandchild_pid {
+        Some(pid) => pid,
+        None => {
+            let captured: Vec<String> = buffer
+                .snapshot(100)
+                .into_iter()
+                .map(|e| e.message)
+                .collect();
+            panic!(
+                "Failed to capture grandchild PID from spawner output! Logs captured: {:?}",
+                captured
+            );
+        }
+    };
     assert!(gc_pid > 0);
 
     // Verify grandchild process is actively running in Windows

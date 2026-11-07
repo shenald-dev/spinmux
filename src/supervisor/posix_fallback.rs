@@ -2,8 +2,6 @@
 
 #[cfg(unix)]
 mod unix_impl {
-    use std::os::unix::process::CommandExt;
-
     pub fn configure_posix_command(cmd: &mut tokio::process::Command) {
         unsafe {
             cmd.pre_exec(|| {

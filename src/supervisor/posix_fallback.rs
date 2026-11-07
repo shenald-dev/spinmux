@@ -1,12 +1,12 @@
 //! Cross-platform POSIX fallback process supervisor hooks
 
-/// Configures process group isolation and parent death signal on Unix
-pub fn configure_posix_command(_cmd: &mut tokio::process::Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
+#[cfg(unix)]
+mod unix_impl {
+    use std::os::unix::process::CommandExt;
+
+    pub fn configure_posix_command(cmd: &mut tokio::process::Command) {
         unsafe {
-            _cmd.pre_exec(|| {
+            cmd.pre_exec(|| {
                 // Place child process into its own process group
                 libc::setpgid(0, 0);
 
@@ -20,16 +20,28 @@ pub fn configure_posix_command(_cmd: &mut tokio::process::Command) {
             });
         }
     }
-}
 
-/// Sends a signal to a POSIX process group
-pub fn kill_posix_process_group(_pgid: i32, _sig: i32) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        let ret = unsafe { libc::killpg(_pgid, _sig) };
+    pub fn kill_posix_process_group(pgid: i32, sig: i32) -> std::io::Result<()> {
+        let ret = unsafe { libc::killpg(pgid, sig) };
         if ret != 0 {
             return Err(std::io::Error::last_os_error());
         }
+        Ok(())
     }
+}
+
+/// Configures process group isolation and parent death signal on Unix.
+/// No-op on non-Unix platforms.
+pub fn configure_posix_command(_cmd: &mut tokio::process::Command) {
+    #[cfg(unix)]
+    unix_impl::configure_posix_command(_cmd);
+}
+
+/// Sends a signal to a POSIX process group.
+/// No-op on non-Unix platforms.
+pub fn kill_posix_process_group(_pgid: i32, _sig: i32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return unix_impl::kill_posix_process_group(_pgid, _sig);
+    #[cfg(not(unix))]
     Ok(())
 }
